@@ -98,7 +98,7 @@ const fetchDevices = async () => {
       } catch (e) {
         console.error('设备消息解析失败:', e);
       }
-      devices[mac] = { ...device, normalizedMac: mac };
+      devices[mac] = { ...device, rawMac }; // 保存原始 MAC 地址
     });
   } catch (error) {
     console.error('获取设备失败:', error);
@@ -185,11 +185,19 @@ const sendControlCommand = (mac, key) => {
     return;
   }
 
+  // 获取原始格式的 MAC 地址
+  const rawMac = devices[mac]?.rawMac;
+  if (!rawMac) {
+    console.error('未找到原始格式的 MAC 地址');
+    return;
+  }
+
   const payload = JSON.stringify({
     msg: { [key]: value.toString() }
   });
 
-  const fullMessage = `${payload}`;
+  // 在消息前添加原始格式的 MAC 地址
+  const fullMessage = `[${rawMac}]${payload}`;
   mqttClientInstance.publish(mqttTopic.value, fullMessage, err => {
     if (err) {
       console.error('发送失败:', err);
@@ -236,201 +244,120 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
-  background: #f0f4f8;
+  height: 100%;
 }
 
 .password-prompt input {
   margin-bottom: 16px;
-  padding: 12px 20px;
-  width: 280px;
-  border: 2px solid #cbd5e1;
-  border-radius: 8px;
+  padding: 8px;
   font-size: 16px;
-  transition: border-color 0.3s ease;
-}
-
-.password-prompt input:focus {
-  outline: none;
-  border-color: #3b82f6;
 }
 
 .password-prompt button {
-  padding: 12px 30px;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
+  padding: 8px 16px;
   font-size: 16px;
   cursor: pointer;
-  transition: background 0.3s ease;
-}
-
-.password-prompt button:hover {
-  background: #2563eb;
 }
 
 /* 监控容器样式 */
 .monitor-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
-  padding: 24px;
-  background: #f8fafc;
-  min-height: 100vh;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); /* 调整为网格布局 */
+  gap: 12px;
+  padding: 12px;
 }
 
 .gateway-card {
   background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-  transition: transform 0.2s ease;
-}
-
-.gateway-card:hover {
-  transform: translateY(-2px);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  max-width: 100%; /* 移除固定宽度限制 */
+  margin: 0; /* 移除居中显示 */
 }
 
 .gateway-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.gateway-header h3 {
-  margin: 0;
-  color: #1e293b;
-  font-size: 1.2rem;
+  margin-bottom: 16px;
 }
 
 .status {
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
 }
 
-.status.online {
-  background: #10b981;
-  color: #ffffff;
+.online {
+  background: #27ae60;
+  color: white;
 }
 
-.status.offline {
-  background: #ef4444;
-  color: #ffffff;
+.offline {
+  background: #e74c3c;
+  color: white;
 }
 
 /* 控制器网格样式 */
 .controller-grid {
   display: grid;
-  gap: 18px;
+  gap: 12px;
 }
 
 .controller-item {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 18px;
-  transition: box-shadow 0.3s ease;
-}
-
-.controller-item:hover {
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  padding: 10px;
+  border-radius: 6px;
+  background: #e3f2fd;
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* 调整为统一间距 */
+  min-width: 99%; /* 限制宽度不超过父容器 */
+  max-width: 99%; /* 限制宽度不超过父容器 */
 }
 
 .controller-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
+  justify-content: space-between; /* 设备名和设备值两端对齐 */
+  width: 100%;
 }
 
-.controller-label {
-  font-weight: 600;
-  color: #3b82f6;
-  font-size: 1rem;
-}
-
-.current-value {
-  color: #64748b;
-  font-size: 0.9rem;
-  background: #e2e8f0;
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-/* 控制输入区域 */
 .controller-control {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
+  display: flex;
+  justify-content: space-between; /* 输入框和按钮两端对齐 */
+  align-items: center;
+  gap: 8px; /* 调整为统一间距 */
+  width: 100%;
 }
 
 .controller-control input {
-  padding: 10px 14px;
+  flex: 1; /* 输入框占据剩余空间 */
+  max-width: 65%; /* 限制宽度为父容器的0.6*/
+  padding: 8px;
   border: 2px solid #cbd5e1;
   border-radius: 6px;
   font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.controller-control input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-  outline: none;
 }
 
 .controller-control button {
-  padding: 10px 20px;
+  max-width: 60px; /* 限制宽度为父容器的0.6*/
+  padding: 8px 16px;
   background: #3b82f6;
   color: white;
   border: none;
   border-radius: 6px;
-  font-weight: 500;
+  font-size: 14px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.3s ease;
+  white-space: nowrap; /* 防止按钮文字换行 */
 }
 
 .controller-control button:hover {
   background: #2563eb;
-  transform: translateY(-1px);
 }
 
 .controller-control button:disabled {
   background: #94a3b8;
   cursor: not-allowed;
   opacity: 0.7;
-  /* 添加离线提示 */
-  position: relative;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .monitor-container {
-    grid-template-columns: 1fr;
-    padding: 15px;
-  }
-
-  .gateway-card {
-    padding: 15px;
-  }
-
-  .controller-control {
-    grid-template-columns: 1fr;
-  }
-
-  .controller-control button {
-    width: 100%;
-    justify-content: center;
-  }
 }
 </style>

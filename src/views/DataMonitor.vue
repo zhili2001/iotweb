@@ -15,9 +15,12 @@
         </span>
       </div>
       <div class="sensor-grid">
-        <div v-for="sensor in gateway.sensors" :key="sensor.key" class="sensor-item">
-          <div class="sensor-label">{{ sensor.alias }}</div>
-          <div class="sensor-value">{{ sensor.value }}</div>
+        <!-- 传感器和控制器统一处理 -->
+        <div v-for="item in [...gateway.sensors, ...gateway.controllers]" 
+             :key="item.key" 
+             :class="item.device_type === 1 ? 'sensor-item' : 'controller-item'">
+          <div class="sensor-label">{{ item.alias }}</div>
+          <div class="sensor-value">{{ item.value }}</div>
         </div>
       </div>
     </div>
@@ -31,15 +34,13 @@ import mqtt from 'mqtt';
 import axios from 'axios';
 
 const authStore = useAuthStore();
-const devices = reactive({}); // 改为 reactive 实现深度响应式
+const devices = reactive({}); // 存储设备数据
 const password = ref('');
 const showPasswordPrompt = ref(true);
-let mqttClientInstance = null; // MQTT 单例
+let mqttClientInstance = null; // MQTT 客户端实例
 
-// 标准化 MAC 地址格式（去除分隔符并小写）
-const normalizeMac = (mac) => {
-  return mac ? mac.replace(/[^a-fA-F0-9]/g, '').toLowerCase() : '';
-};
+// 标准化 MAC 地址格式
+const normalizeMac = (mac) => mac?.replace(/[^a-fA-F0-9]/g, '').toLowerCase() || '';
 
 // 计算网关列表
 const gateways = computed(() => {
@@ -50,7 +51,14 @@ const gateways = computed(() => {
     sensors: device.keys
       .filter(k => k.device_type === 1)
       .map(k => ({
-        key: k.mac_key,
+        ...k,
+        alias: k.key_alias || k.mac_key,
+        value: k.value || 'N/A'
+      })),
+    controllers: device.keys
+      .filter(k => k.device_type === 2)
+      .map(k => ({
+        ...k,
         alias: k.key_alias || k.mac_key,
         value: k.value || 'N/A'
       }))
@@ -60,11 +68,7 @@ const gateways = computed(() => {
 // 获取设备数据
 const fetchDevices = async () => {
   try {
-    const res = await axios.get('/api/iot/devices', {
-      params: { userId: authStore.userId }
-    });
-    
-    // 标准化 MAC 并初始化数据
+    const res = await axios.get('/api/iot/devices', { params: { userId: authStore.userId } });
     Object.entries(res.data).forEach(([rawMac, device]) => {
       const mac = normalizeMac(rawMac);
       try {
@@ -75,58 +79,52 @@ const fetchDevices = async () => {
       } catch (e) {
         console.error('设备消息解析失败:', e);
       }
-      devices[mac] = { ...device, normalizedMac: mac }; // 存储标准化 MAC
+      devices[mac] = { ...device, normalizedMac: mac };
     });
   } catch (error) {
     console.error('获取设备失败:', error);
   }
 };
 
-// 修改后的更新函数
+// 更新传感器值
 const updateSensorValues = (rawMac, msg) => {
   const mac = normalizeMac(rawMac);
   const device = devices[mac];
-  
   if (!device) {
-    console.warn(`未注册设备: ${mac} (原始值: ${rawMac})`);
+    console.warn(`未注册设备: ${mac}`);
     return;
   }
-
   device.keys.forEach(key => {
-    const value = msg[key.mac_key];
-    if (key.device_type === 1 && value !== undefined) {
-      key.value = value;
+    if (msg[key.mac_key] !== undefined) {
+      key.value = msg[key.mac_key];
     }
   });
 };
 
-// 初始化 MQTT
+// 初始化 MQTT 客户端
 const initMqttClient = async () => {
   if (mqttClientInstance?.connected) {
     console.log('复用现有 MQTT 连接');
     return;
   }
-
   try {
     const res = await axios.post('/api/iot/get_topic', {
       username: authStore.username,
       password: password.value
     });
-    
     mqttClientInstance = mqtt.connect('ws://lichen129.icu:8083/mqtt', {
       clientId: '11111111111111111',
       username: authStore.username,
       password: password.value,
       protocolVersion: 5
     });
-
     mqttClientInstance.on('connect', () => {
       console.log('MQTT 连接成功');
       mqttClientInstance.subscribe(res.data.topic, (err) => {
-        err ? console.error('订阅失败:', err) : console.log('订阅成功:', res.data.topic);
+        if (err) console.error('订阅失败:', err);
+        else console.log('订阅成功:', res.data.topic);
       });
     });
-
     mqttClientInstance.on('message', (topic, message) => {
       try {
         const messageString = message.toString();
@@ -137,14 +135,11 @@ const initMqttClient = async () => {
         }
         const msgMac = macMatch[1];
         const payload = JSON.parse(messageString.replace(/^\[[^\]]+\]/, ''));
-        console.log('[MQTT消息]', payload);
-
         updateSensorValues(msgMac, payload.msg);
       } catch (e) {
         console.error('消息解析失败:', e);
       }
     });
-
   } catch (error) {
     console.error('MQTT 初始化失败:', error);
     throw error;
@@ -163,7 +158,7 @@ const handlePasswordSubmit = async () => {
   }
 };
 
-// 生命周期
+// 生命周期钩子
 onMounted(() => {
   const savedPassword = sessionStorage.getItem('mqttPassword');
   if (savedPassword) {
@@ -188,11 +183,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
-}
-
-.sensor-value-updated {
-  background-color: #ffeb3b;
+  height: 100%;
 }
 
 .password-prompt input {
@@ -210,16 +201,16 @@ onUnmounted(() => {
 /* 监控容器样式 */
 .monitor-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
-  padding: 24px;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 12px;
 }
 
 .gateway-card {
   background: white;
   border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .gateway-header {
@@ -247,26 +238,40 @@ onUnmounted(() => {
 
 .sensor-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 12px;
 }
 
-.sensor-item {
-  background: #f8f9fa;
-  padding: 12px;
+.sensor-item,
+.controller-item {
+  padding: 10px;
   border-radius: 6px;
+  width: 110px;
+  height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.sensor-item {
+  background: #e8f5e9;
+}
+
+.controller-item {
+  background: #e3f2fd;
 }
 
 .sensor-label {
   color: #7f8c8d;
-  font-size: 12px;
+  font-size: 16px; /* 增大字体 */
+  font-weight: bold; /* 加粗 */
 }
 
 .sensor-value {
-  /* 添加更新动画 */
   transition: background-color 0.5s;
-  font-size: 18px;
-  font-weight: bold;
+  font-size: 14px; /* 调整为比名称小 */
+  font-weight: bold; /* 保持加粗 */
   color: #2c3e50;
 }
 </style>
