@@ -19,7 +19,7 @@ const handleLogin = async () => {
     
     // 登录成功后，手动检查状态并跳转
     if (authStore.isAuthenticated) {
-      router.replace('/monitor'); // 使用 replace 避免历史记录问题
+      router.replace('/home'); // 使用 replace 避免历史记录问题
     } else {
       errorMessage.value = '认证状态异常，请重新登录';
     }

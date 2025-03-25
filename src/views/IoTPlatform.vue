@@ -37,6 +37,7 @@
         </div>
 
         <button @click="saveDeviceConfig(device, mac)" class="save-btn">保存配置</button>
+        <button @click="removeDevice(mac)" class="remove-btn">移除网关</button>
       </div>
     </div>
   </div>
@@ -117,6 +118,22 @@ const refreshDeviceKeys = async () => {
     alert('设备信息已刷新');
   } catch (error) {
     handleRequestError(error, '刷新设备信息失败');
+  }
+};
+
+const removeDevice = async (mac) => {
+  try {
+    checkLoginStatus();
+    const confirmDelete = confirm('确定要移除该网关吗？');
+    if (!confirmDelete) return;
+
+    await axios.delete('/api/iot/delete-device', {
+      data: { mac_address: mac },
+    });
+    alert('网关已移除');
+    await fetchDevices();
+  } catch (error) {
+    handleRequestError(error, '移除网关失败');
   }
 };
 
@@ -262,5 +279,21 @@ onMounted(() => {
 
 .save-btn:hover {
   background-color: #2563eb;
+}
+
+.remove-btn {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background-color: #6b7280; /* 灰色 */
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  float: right; /* 靠右对齐 */
+}
+
+.remove-btn:hover {
+  background-color: #4b5563; /* 深灰色 */
 }
 </style>

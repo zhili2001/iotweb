@@ -11,7 +11,7 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
-// 全局响应拦截器（处理 401 错误）
+// 全局响应拦截器（处理 401 错误）  
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -33,7 +33,8 @@ export const useAuthStore = defineStore('auth', {
     token: localStorage.getItem('token') || null,
     username: localStorage.getItem('username') || null,
     userId: localStorage.getItem('userId') || null,
-    expiresAt: localStorage.getItem('expiresAt')?Number(localStorage.getItem('expiresAt')):null // 新增字段
+    expiresAt: localStorage.getItem('expiresAt')?Number(localStorage.getItem('expiresAt')):null, // 新增字段
+    historyData: JSON.parse(localStorage.getItem('historyData')) || {} // 从 localStorage 加载历史数据
   }),
 
   //动作
@@ -173,6 +174,19 @@ export const useAuthStore = defineStore('auth', {
       } catch (error) {
         console.error('MQTT初始化失败:', error)
       }
+    },
+
+    setHistoryData(mac, data) {
+      if (!this.historyData) this.historyData = {};
+      const formattedData = data.map(item => ({
+        key: item.key_alias || item.key, // 使用设备名称替换 key
+        values: item.values
+      }));
+      this.historyData[mac] = {
+        timestamp: Date.now(),
+        data: formattedData
+      };
+      localStorage.setItem('historyData', JSON.stringify(this.historyData)); // 同步到 localStorage
     }
   },
 
@@ -181,6 +195,9 @@ export const useAuthStore = defineStore('auth', {
       getUsername：返回 username，如果不存在则返回 '访客用户'。*/
   getters: {
     isAuthenticated: (state) => !!state.token && state.expiresAt > Date.now(),
-    getUsername: (state) => state.username || '访客用户'
+    getUsername: (state) => state.username || '访客用户',
+    getHistoryData: (state) => (mac) => {
+      return state.historyData?.[mac]?.data || {};
+    }
   }
 });

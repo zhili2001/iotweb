@@ -1,11 +1,11 @@
 <template>
-  <!-- 密码提示框 -->
+  <!-- 密码验证框 -->
   <div v-if="showPasswordPrompt" class="password-prompt">
     <input v-model="password" type="password" placeholder="请输入密码" />
     <button @click="handlePasswordSubmit">提交</button>
   </div>
   
-  <!-- 监控容器 -->
+  <!-- 数据监控容器 -->
   <div v-else class="monitor-container">
     <div v-for="gateway in gateways" :key="gateway.mac" class="gateway-card">
       <div class="gateway-header">
@@ -23,6 +23,17 @@
           <div class="sensor-value">{{ item.value }}</div>
         </div>
       </div>
+      <!-- 在网关卡片底部添加 -->
+      <div class="history-control-section">
+        <div class="button-group">
+          <button 
+            class="history-btn"
+            @click="openHistory(gateway.mac)"
+          >
+            查看历史数据
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -32,6 +43,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import mqtt from 'mqtt';
 import axios from 'axios';
+import router from '../router'; // 添加 router 导入
 
 const authStore = useAuthStore();
 const devices = reactive({}); // 存储设备数据
@@ -39,13 +51,68 @@ const password = ref('');
 const showPasswordPrompt = ref(true);
 let mqttClientInstance = null; // MQTT 客户端实例
 
-// 标准化 MAC 地址格式
-const normalizeMac = (mac) => mac?.replace(/[^a-fA-F0-9]/g, '').toLowerCase() || '';
+//--------------------------------------------------
+
+// 新增响应式数据
+const isLoading = ref(false);
+const isError = ref(false);
+const isSuccess = ref(false);
+const lastUpdateTime = ref(null);
+const refreshButtonText = ref('更新历史数据');
+
+// 获取历史数据方法
+const fetchHistoryData = async (mac) => {
+  try {
+    isLoading.value = true;
+    isError.value = false;
+    isSuccess.value = false;
+    refreshButtonText.value = '正在更新...';
+
+    const res = await axios.post('/api/iot/get_mac_data', { 
+      mac_address: mac 
+    });
+
+    if (res.data && res.data.mac_address && res.data.data) {
+      const formattedData = Object.entries(res.data.data).map(([key, values]) => ({
+        key,
+        values: values.map(item => ({
+          value: item.value,
+          time: item.time // 保留原始时间戳，避免格式化为字符串
+        }))
+      }));
+      console.log('格式化后的数据:', formattedData); // 调试日志
+      authStore.setHistoryData(mac, formattedData); // 确保数据格式正确
+      isSuccess.value = true;
+      lastUpdateTime.value = new Date().toLocaleTimeString();
+    } else {
+      throw new Error('返回数据格式不正确');
+    }
+  } catch (error) {
+    isError.value = true;
+    lastUpdateTime.value = new Date().toLocaleTimeString();
+    console.error('数据获取失败:', error.message || error);
+  } finally {
+    isLoading.value = false;
+    refreshButtonText.value = '更新历史数据';
+  }
+};
+
+// 打开历史页面
+const openHistory = (mac) => {
+  const url = router.resolve({
+    name: 'HistoryData',
+    params: { mac },
+    query: { timestamp: Date.now() } // 避免路由缓存
+  }).href;
+  window.open(url, '_blank'); // 在新页面打开
+};
+
+const normalizeMac = (mac) => mac?.toUpperCase().match(/.{1,2}/g)?.join(':') || ''; // 保留大写和冒号格式
 
 // 计算网关列表
 const gateways = computed(() => {
   return Object.entries(devices).map(([mac, device]) => ({
-    mac,
+    mac: device.rawMac || mac, // 使用原始 MAC 地址
     alias: device.mac_alias || mac,
     online: device.is_online,
     sensors: device.keys
@@ -71,6 +138,7 @@ const fetchDevices = async () => {
     const res = await axios.get('/api/iot/devices', { params: { userId: authStore.userId } });
     Object.entries(res.data).forEach(([rawMac, device]) => {
       const mac = normalizeMac(rawMac);
+      device.rawMac = rawMac; // 保存原始 MAC 地址
       try {
         const msg = JSON.parse(device.msg || '{}').msg || {};
         device.keys.forEach(key => {
@@ -108,9 +176,9 @@ const initMqttClient = async () => {
     return;
   }
   try {
-    const res = await axios.post('/api/iot/get_topic', {
-      username: authStore.username,
-      password: password.value
+    const res = await axios.post('/api/iot/get_topic', { 
+      username: authStore.username, 
+      password: password.value 
     });
     mqttClientInstance = mqtt.connect('ws://lichen129.icu:8083/mqtt', {
       clientId: '11111111111111111',
@@ -185,13 +253,11 @@ onUnmounted(() => {
   justify-content: center;
   height: 100%;
 }
-
 .password-prompt input {
   margin-bottom: 16px;
   padding: 8px;
   font-size: 16px;
 }
-
 .password-prompt button {
   padding: 8px 16px;
   font-size: 16px;
@@ -205,43 +271,35 @@ onUnmounted(() => {
   gap: 12px;
   padding: 12px;
 }
-
 .gateway-card {
   background: white;
-  border-radius: 8px;
-  padding: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 12px;
 }
-
 .gateway-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
-
 .status {
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
 }
-
 .online {
   background: #27ae60;
   color: white;
 }
-
 .offline {
   background: #e74c3c;
   color: white;
 }
-
 .sensor-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 12px;
 }
-
 .sensor-item,
 .controller-item {
   padding: 10px;
@@ -253,25 +311,65 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
-
 .sensor-item {
   background: #e8f5e9;
 }
-
 .controller-item {
   background: #e3f2fd;
 }
-
 .sensor-label {
-  color: #7f8c8d;
   font-size: 16px; /* 增大字体 */
   font-weight: bold; /* 加粗 */
+  color: #7f8c8d;
 }
-
 .sensor-value {
-  transition: background-color 0.5s;
-  font-size: 14px; /* 调整为比名称小 */
+  font-size: 16px; /* 增大字体 */
   font-weight: bold; /* 保持加粗 */
   color: #2c3e50;
+  transition: background-color 0.5s;
 }
+
+/* --------------------历史数据新增-------------------- */
+.history-control-section {
+  margin-top: 1rem;
+  border-top: 1px solid #eee;
+  padding-top: 1rem;
+}
+.button-group {
+  display: flex;
+  gap: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+.refresh-btn {
+  background: #3b82f6;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: all 0.3s;
+  &:disabled {
+    background: #94a3b8;
+    cursor: not-allowed;
+  }
+}
+.history-btn {
+  background: #10b981;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: all 0.3s;
+  &.disabled {
+    background: #6ee7b7;
+    cursor: not-allowed;
+  }
+  &.error {
+    background: #ef4444;
+  }
+}
+.status-indicator {
+  font-size: 0.9rem;
+  .success-text { color: #10b981; }
+  .error-text { color: #ef4444; }
+  .loading-text { color: #3b82f6; }
+}
+/* --------------------历史数据新增-------------------- */
 </style>

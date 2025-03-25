@@ -10,7 +10,13 @@ const routes = [
   { path: '/home', name: 'Home', component: () => import('../views/iothome.vue'), meta: { requiresAuth: true } },
   { path: '/monitor', name: 'DataMonitor', component: () => import('../views/DataMonitor.vue'), meta: { requiresAuth: true } },
   { path: '/control', name: 'DeviceControl', component: () => import('../views/DeviceControl.vue'), meta: { requiresAuth: true } },
-  { path: '/automation', name: 'Automation', component: () => import('../views/AutomationView.vue'), meta: { requiresAuth: true } }
+  { path: '/automation', name: 'Automation', component: () => import('../views/AutomationView.vue'), meta: { requiresAuth: true } },
+  {
+    path: '/history/:mac',
+    name: 'HistoryData',
+    component: () => import('../views/HistoryDataView.vue'),
+    meta: { requiresAuth: true }
+  }
 ];
 
 //Vue Router的配置部分，用于创建一个路由器实例
