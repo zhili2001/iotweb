@@ -30,6 +30,7 @@
                 <select v-model="key.type" class="key-select">
                   <option value="1">传感器</option>
                   <option value="2">控制器</option>
+                  <option value="3">自动化开关</option>
                 </select>
               </div>
             </div>

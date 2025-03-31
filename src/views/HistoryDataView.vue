@@ -251,8 +251,9 @@ const hourOptions = Array.from({ length: 24 }, (_, i) => i);
 // 初始化日期选项
 const initDateOptions = () => {
   const today = new Date();
+  const timezoneOffset = today.getTimezoneOffset() * 60000; // 获取时区偏移量（毫秒）
   dateOptions.value = ['全部', ...Array.from({ length: 8 }, (_, i) => {
-    const date = new Date(today);
+    const date = new Date(today - timezoneOffset); // 转换为 UTC 时间
     date.setDate(today.getDate() - i);
     return date.toISOString().split('T')[0];
   })];
@@ -268,8 +269,8 @@ const filteredTableDataByRange = computed(() => {
     return keyData.values; // 不筛选日期，返回所有数据
   }
 
-  const startTimestamp = new Date(`${selectedDate.value}T${String(startHour.value).padStart(2, '0')}:00:00`).getTime();
-  const endTimestamp = new Date(`${selectedDate.value}T${String(endHour.value).padStart(2, '0')}:59:59`).getTime();
+  const startTimestamp = new Date(`${selectedDate.value}T${String(startHour.value).padStart(2, '0')}:00:00+08:00`).getTime(); // 使用北京时间
+  const endTimestamp = new Date(`${selectedDate.value}T${String(endHour.value).padStart(2, '0')}:59:59+08:00`).getTime(); // 使用北京时间
 
   return keyData.values.filter(item => item.time >= startTimestamp && item.time <= endTimestamp);
 });

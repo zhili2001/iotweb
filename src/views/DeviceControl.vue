@@ -58,17 +58,13 @@ const controllerValues = reactive({}); // 存储所有控制器的输入值
 const mqttTopic = ref(''); // 存储MQTT主题
 let mqttClientInstance = null;
 
-const normalizeMac = (mac) => {
-  return mac ? mac.replace(/[^a-fA-F0-9]/g, '').toLowerCase() : '';
-};
-
 const gateways = computed(() => {
-  return Object.entries(devices).map(([mac, device]) => ({
-    mac,
-    alias: device.mac_alias || mac,
+  return Object.entries(devices).map(([rawMac, device]) => ({
+    mac: rawMac, // 直接使用 rawMac
+    alias: device.mac_alias || rawMac,
     online: device.is_online,
     controllers: device.keys
-      .filter(k => parseInt(k.device_type) === 2)
+      .filter(k => parseInt(k.device_type) === 2) // 保留控制器类型
       .map(k => ({
         key: k.mac_key,
         alias: k.key_alias || k.mac_key,
@@ -82,23 +78,21 @@ const fetchDevices = async () => {
   try {
     const res = await axios.get('/api/iot/devices', {
       params: { 
-        userId: authStore.userId,
-        deviceType: 2
+        userId: authStore.userId
       }
     });
     
     Object.entries(res.data).forEach(([rawMac, device]) => {
-      const mac = normalizeMac(rawMac);
       try {
-        const msg = JSON.parse(device.msg || '{}').msg || {};
-        device.keys.forEach(key => {
-          key.value = msg[key.mac_key] || 'N/A';
-          controllerValues[key.mac_key] = key.value;
+        const msg = JSON.parse(device.msg || '{}').msg || {};   //提取嵌套的 msg 字段
+        device.keys.forEach(key => {                            //遍历网关的每个key
+          key.value = msg[key.mac_key] || 'N/A';                //提取对应 key中对应mac_key 的值，若不存在则设为 'N/A'。
+          controllerValues[key.mac_key] = key.value;            //将键值（msg中信息）对保存到全局对象中
         });
       } catch (e) {
         console.error('设备消息解析失败:', e);
       }
-      devices[mac] = { ...device, rawMac }; // 保存原始 MAC 地址
+      devices[rawMac] = { ...device, rawMac }; //  ...device:将 device 对象的所有属性展开到新对象中，添加（或覆盖）rawMac 属性
     });
   } catch (error) {
     console.error('获取设备失败:', error);
@@ -107,11 +101,10 @@ const fetchDevices = async () => {
 
 // 恢复原始消息处理方法
 const updateSensorValues = (rawMac, msg) => {
-  const mac = normalizeMac(rawMac);
-  const device = devices[mac];
+  const device = devices[rawMac]; // 直接使用 rawMac
   
   if (!device) {
-    console.warn(`未注册设备: ${mac} (原始值: ${rawMac})`);
+    console.warn(`未注册设备: ${rawMac}`);
     return;
   }
 
@@ -175,7 +168,7 @@ const initMqttClient = async () => {
 
 const sendControlCommand = (mac, key) => {
   if (!mqttClientInstance?.connected) {
-    alert('MQTT连接未就绪');
+    alert('MQTT连接堵塞，请重试！');
     return;
   }
 
@@ -185,18 +178,11 @@ const sendControlCommand = (mac, key) => {
     return;
   }
 
-  // 获取原始格式的 MAC 地址
-  const rawMac = devices[mac]?.rawMac;
-  if (!rawMac) {
-    console.error('未找到原始格式的 MAC 地址');
-    return;
-  }
-
+  const rawMac = mac; // 直接使用 mac 作为 rawMac
   const payload = JSON.stringify({
     msg: { [key]: value.toString() }
   });
 
-  // 在消息前添加原始格式的 MAC 地址
   const fullMessage = `[${rawMac}]${payload}`;
   mqttClientInstance.publish(mqttTopic.value, fullMessage, err => {
     if (err) {

@@ -107,13 +107,11 @@ const openHistory = (mac) => {
   window.open(url, '_blank'); // 在新页面打开
 };
 
-const normalizeMac = (mac) => mac?.toUpperCase().match(/.{1,2}/g)?.join(':') || ''; // 保留大写和冒号格式
-
 // 计算网关列表
 const gateways = computed(() => {
-  return Object.entries(devices).map(([mac, device]) => ({
-    mac: device.rawMac || mac, // 使用原始 MAC 地址
-    alias: device.mac_alias || mac,
+  return Object.entries(devices).map(([rawMac, device]) => ({
+    mac: rawMac, // 使用 rawMac
+    alias: device.mac_alias || rawMac,
     online: device.is_online,
     sensors: device.keys
       .filter(k => k.device_type === 1)
@@ -137,7 +135,6 @@ const fetchDevices = async () => {
   try {
     const res = await axios.get('/api/iot/devices', { params: { userId: authStore.userId } });
     Object.entries(res.data).forEach(([rawMac, device]) => {
-      const mac = normalizeMac(rawMac);
       device.rawMac = rawMac; // 保存原始 MAC 地址
       try {
         const msg = JSON.parse(device.msg || '{}').msg || {};
@@ -147,7 +144,7 @@ const fetchDevices = async () => {
       } catch (e) {
         console.error('设备消息解析失败:', e);
       }
-      devices[mac] = { ...device, normalizedMac: mac };
+      devices[rawMac] = { ...device }; // 使用 rawMac 作为键
     });
   } catch (error) {
     console.error('获取设备失败:', error);
@@ -156,10 +153,9 @@ const fetchDevices = async () => {
 
 // 更新传感器值
 const updateSensorValues = (rawMac, msg) => {
-  const mac = normalizeMac(rawMac);
-  const device = devices[mac];
+  const device = devices[rawMac]; // 直接使用 rawMac
   if (!device) {
-    console.warn(`未注册设备: ${mac}`);
+    console.warn(`未注册设备: ${rawMac}`);
     return;
   }
   device.keys.forEach(key => {
