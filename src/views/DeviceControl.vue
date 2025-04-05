@@ -40,6 +40,8 @@
           </div>
         </div>
       </div>
+      <!-- 添加底部横线划分 -->
+      <div class="control-section"></div>
     </div>
   </div>
 </template>
@@ -178,12 +180,9 @@ const sendControlCommand = (mac, key) => {
     return;
   }
 
-  const rawMac = mac; // 直接使用 mac 作为 rawMac
-  const payload = JSON.stringify({
-    msg: { [key]: value.toString() }
-  });
-
-  const fullMessage = `[${rawMac}]${payload}`;
+  const payload = JSON.stringify({ msg: { [key]: value.toString() } });
+  // 发送控制命令
+  const fullMessage = `[${mac}]${payload}`;
   mqttClientInstance.publish(mqttTopic.value, fullMessage, err => {
     if (err) {
       console.error('发送失败:', err);
@@ -248,7 +247,7 @@ onUnmounted(() => {
 /* 监控容器样式 */
 .monitor-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); /* 调整为网格布局 */
+  grid-template-columns: 1fr; /* 横排布局 */
   gap: 12px;
   padding: 12px;
 }
@@ -258,8 +257,6 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  max-width: 100%; /* 移除固定宽度限制 */
-  margin: 0; /* 移除居中显示 */
 }
 
 .gateway-header {
@@ -288,6 +285,7 @@ onUnmounted(() => {
 /* 控制器网格样式 */
 .controller-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); /* 横排布局 */
   gap: 12px;
 }
 
@@ -298,8 +296,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px; /* 调整为统一间距 */
-  min-width: 99%; /* 限制宽度不超过父容器 */
-  max-width: 99%; /* 限制宽度不超过父容器 */
 }
 
 .controller-header {
@@ -345,5 +341,12 @@ onUnmounted(() => {
   background: #94a3b8;
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+/* 底部横线划分样式 */
+.control-section {
+  margin-top: 1rem;
+  border-top: 1px solid #eee;
+  padding-top: 1rem;
 }
 </style>

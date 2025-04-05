@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 
 const routes = [
-  { path: '/', redirect: '/monitor' },
+  { path: '/', redirect: '/home' },
   { path: '/test', name: 'Test', component: () => import('../views/test.vue') }, // 确保 name 和 component 路径正确
   { path: '/login', name: 'Login', component: () => import('../views/LoginView.vue') },
   { path: '/register', name: 'Register', component: () => import('../views/RegisterView.vue') },

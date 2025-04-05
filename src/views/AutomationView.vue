@@ -1,6 +1,12 @@
 <template>
-  <div class="automation-view">
-    <h2>自动化设置</h2>
+  <!-- 密码验证框 -->
+  <div v-if="showPasswordPrompt" class="password-prompt">
+    <input v-model="password" type="password" placeholder="请输入密码" />
+    <button @click="handlePasswordSubmit">提交</button>
+  </div>
+
+  <!-- 自动化设置界面 -->
+  <div v-else class="automation-view">
     <div class="automation-container">
       <div v-for="gateway in gateways" :key="gateway.mac" class="gateway-card">
         <div class="gateway-header">
@@ -27,6 +33,8 @@
             </label>
           </div>
         </div>
+        <!-- 添加底部横线划分 -->
+        <div class="control-section"></div>
       </div>
     </div>
   </div>
@@ -45,20 +53,20 @@ const mqttTopic = ref('');
 const password = ref('');
 const showPasswordPrompt = ref(true);
 
-const gateways = computed(() => {
-  return Object.entries(devices).map(([rawMac, device]) => ({
+const gateways = computed(() =>
+  Object.entries(devices).map(([rawMac, device]) => ({
     mac: rawMac,
     alias: device.mac_alias || rawMac,
     online: device.is_online,
     automations: device.keys
-      .filter(k => parseInt(k.device_type) === 3) // 筛选自动化开关
+      .filter(k => parseInt(k.device_type) === 3)
       .map(k => ({
         key: k.mac_key,
         alias: k.key_alias || k.mac_key,
         value: k.value || 0
       }))
-  }));
-});
+  }))
+);
 
 const fetchDevices = async () => {
   try {
@@ -66,9 +74,7 @@ const fetchDevices = async () => {
     Object.entries(res.data).forEach(([rawMac, device]) => {
       try {
         const msg = JSON.parse(device.msg || '{}').msg || {};
-        device.keys.forEach(key => {
-          key.value = msg[key.mac_key] || 0;
-        });
+        device.keys.forEach(key => (key.value = msg[key.mac_key] || 0));
       } catch (e) {
         console.error('设备消息解析失败:', e);
       }
@@ -95,8 +101,7 @@ const toggleAutomation = (mac, key, currentValue) => {
       alert('指令发送失败');
     } else {
       console.log('指令已发送:', fullMessage);
-      const device = devices[mac];
-      const automation = device.keys.find(k => k.mac_key === key);
+      const automation = devices[mac]?.keys.find(k => k.mac_key === key);
       if (automation) automation.value = newValue;
     }
   });
@@ -113,7 +118,7 @@ const initMqttClient = async () => {
 
     mqttTopic.value = res.data.topic;
     mqttClientInstance.value = mqtt.connect('ws://lichen129.icu:8083/mqtt', {
-      clientId: '11111111111111111', // 固定客户端 ID
+      clientId: '11111111111111111',
       username: authStore.username,
       password: password.value,
       protocolVersion: 5
@@ -131,39 +136,26 @@ const initMqttClient = async () => {
       try {
         const messageString = message.toString();
         const macMatch = messageString.match(/^\[([^\]]+)\]/);
-        if (!macMatch) {
-          console.error('消息缺少 MAC 标识:', messageString);
-          return;
-        }
+        if (!macMatch) return console.error('消息缺少 MAC 标识:', messageString);
 
         const msgMac = macMatch[1];
         const payload = JSON.parse(messageString.replace(/^\[[^\]]+\]/, ''));
         console.log('[MQTT消息]', payload);
 
         const device = devices[msgMac];
-        if (!device) {
-          console.warn(`未注册设备: ${msgMac}`);
-          return;
-        }
+        if (!device) return console.warn(`未注册设备: ${msgMac}`);
 
         device.keys.forEach(key => {
           const value = payload.msg[key.mac_key];
-          if (value !== undefined) {
-            key.value = parseInt(value); // 确保值为数字
-          }
+          if (value !== undefined) key.value = parseInt(value);
         });
       } catch (e) {
         console.error('消息解析失败:', e);
       }
     });
 
-    mqttClientInstance.value.on('error', (err) => {
-      console.error('MQTT 错误:', err);
-    });
-
-    mqttClientInstance.value.on('close', () => {
-      console.log('MQTT 连接已关闭');
-    });
+    mqttClientInstance.value.on('error', err => console.error('MQTT 错误:', err));
+    mqttClientInstance.value.on('close', () => console.log('MQTT 连接已关闭'));
   } catch (error) {
     console.error('MQTT 初始化失败:', error);
   }
@@ -189,15 +181,35 @@ onMounted(() => {
   }
 });
 
-onUnmounted(() => {
-  mqttClientInstance.value?.end(true);
-});
+onUnmounted(() => mqttClientInstance.value?.end(true));
 </script>
 
 <style scoped>
+/* 密码提示框样式 */
+.password-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.password-prompt input {
+  margin-bottom: 16px;
+  padding: 8px;
+  font-size: 16px;
+}
+
+.password-prompt button {
+  padding: 8px 16px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* 自动化界面样式 */
 .automation-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
   padding: 12px;
 }
@@ -305,23 +317,10 @@ input:disabled + .slider {
   cursor: not-allowed;
 }
 
-.automation-toggle {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  background: #f59e0b;
-  color: white;
-  transition: background-color 0.3s;
-}
-
-.automation-toggle.active {
-  background: #d97706;
-}
-
-.automation-toggle:disabled {
-  background: #94a3b8;
-  cursor: not-allowed;
+/* 底部横线划分样式 */
+.control-section {
+  margin-top: 1rem;
+  border-top: 1px solid #eee;
+  padding-top: 1rem;
 }
 </style>

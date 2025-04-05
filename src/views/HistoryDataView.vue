@@ -23,22 +23,17 @@
       </option>
     </select>
   </div>
-  <div class="toolbar">
+  <div class="toolbar time-range">
     <label>选择时间范围：</label>
-    <select v-model="startHour">
-      <option v-for="hour in hourOptions" :key="hour" :value="hour">
-        {{ hour }}:00
-      </option>
-    </select>
+    <input type="time" v-model="startTime" @change="validateTimeRange" />
     <span>至</span>
-    <select v-model="endHour">
-      <option v-for="hour in hourOptions" :key="hour" :value="hour">
-        {{ hour }}:00
-      </option>
-    </select>
+    <input type="time" v-model="endTime" @change="validateTimeRange" />
   </div>
   <div v-if="!isDataLoaded" class="loading-container">
     <p>未获取数据，请点击“立即刷新”按钮获取数据。</p>
+  </div>
+  <div v-else-if="processedChartData.length === 0" class="no-data-container">
+    <p>无数据，请调整时间范围或刷新数据。</p>
   </div>
   <div v-else class="history-container">
     <div class="chart-container">
@@ -53,25 +48,29 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(item, index) in paginatedTableData" :key="index"> <!-- 使用 paginatedTableData -->
+          <tr v-for="(item, index) in paginatedTableData" :key="index">
             <td>{{ formatTime(item.time) }}</td>
-            <td>{{ item.value }}</td>
+            <td>{{ parseFloat(item.value.toFixed(2)) }}</td> <!-- 保留两位小数 -->
           </tr>
         </tbody>
       </table>
       <div class="pagination">
-        <button @click="goToFirstPage" :disabled="currentPage === 1">第一页</button>
+        <button @click="goToFirstPage" :disabled="currentPage === 1">首页</button> <!-- 修改为首页 -->
         <button @click="goToPreviousPage" :disabled="currentPage === 1">上一页</button>
         <span>第 {{ currentPage }} 页 / 共 {{ totalPages }} 页</span>
         <button @click="goToNextPage" :disabled="currentPage === totalPages">下一页</button>
-        <button @click="goToLastPage" :disabled="currentPage === totalPages">最后一页</button>
+        <button @click="goToLastPage" :disabled="currentPage === totalPages">末页</button> <!-- 修改为末页 -->
       </div>
     </div>
+  </div>
+  <div v-if="isLoading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>加载中，请稍候...</p>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted,nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import axios from 'axios';
@@ -82,421 +81,489 @@ const authStore = useAuthStore();
 const chartEl = ref(null);
 let chartInstance = null;
 
-const gatewayName = ref(''); // 网关名称
-
-// 页面加载时获取网关别名
-const fetchGatewayAlias = async () => {
-  try {
-    const mac = route.params.mac;
-    const res = await axios.get('/api/iot/devices', { params: { userId: authStore.userId } });
-    const device = res.data[mac];
-    if (device) {
-      gatewayName.value = device.mac_alias || mac; // 设置网关名称
-
-      // 更新 rawData，确保设备名（key_alias）正确显示
-      rawData.value = device.keys.map(key => ({
-        key: key.mac_key,
-        key_alias: key.key_alias || key.mac_key, // 使用自定义名称或默认值
-        values: [] // 初始化为空，等待历史数据填充
-      }));
-    } else {
-      gatewayName.value = mac; // 如果未找到别名，使用 MAC 地址
-    }
-  } catch (error) {
-    console.error('获取网关别名失败:', error);
-    gatewayName.value = route.params.mac; // 回退到 MAC 地址
-  }
-};
-
 // 响应式数据
+const gatewayName = ref('');
 const autoRefresh = ref(false);
-const refreshInterval = ref(120000); // 自动刷新间隔设置为2分钟
-let autoRefreshTimer = null; // 自动刷新定时器
-const selectedKey = ref(null); // 当前选择的 key
-const isDataLoaded = ref(false); // 数据是否加载成功
-const currentPage = ref(1); // 当前页码
-const itemsPerPage = 5; // 每页显示的行数
-
-// 数据处理
+const refreshInterval = 120000;
+let autoRefreshTimer = null;
+const selectedKey = ref(null);
+const isDataLoaded = ref(false);
+const currentPage = ref(1);
+const itemsPerPage = 5; // 修改每页显示数据行数
 const rawData = ref([]);
-const filteredTableData = computed(() => {
-  if (!selectedKey.value) return [];
-  const keyData = rawData.value.find(item => item.key === selectedKey.value);
-  return keyData ? keyData.values : [];
-});
-
-// 分页逻辑更新
-const paginatedTableData = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage;
-  const end = start + itemsPerPage;
-  return filteredTableDataByRange.value.slice(start, end); // 确保分页基于筛选后的数据
-});
-
-const totalPages = computed(() => Math.ceil(filteredTableDataByRange.value.length / itemsPerPage)); // 使用筛选后的数据计算总页数
-
-// 分页方法
-const goToFirstPage = () => (currentPage.value = 1);
-const goToPreviousPage = () => (currentPage.value = Math.max(1, currentPage.value - 1));
-const goToNextPage = () => (currentPage.value = Math.min(totalPages.value, currentPage.value + 1));
-const goToLastPage = () => (currentPage.value = totalPages.value);
-
-// 手动刷新方法
-const handleManualRefresh = async () => {
-  try {
-    const mac = route.params.mac;
-    const res = await axios.post('/api/iot/get_mac_data', { mac_address: mac });
-
-    if (res.data && res.data.data) {
-      // 填充历史数据到 rawData，并正确映射 key_alias
-      rawData.value = Object.entries(res.data.data).map(([key, values]) => {
-        const deviceKey = rawData.value.find(item => item.key === key);
-        return {
-          key,
-          key_alias: deviceKey?.key_alias || key, // 使用 key_alias 或默认 key
-          values: values.map(data => ({
-            value: data.value,
-            time: new Date(data.time).getTime() // 转换时间为时间戳
-          }))
-        };
-      });
-
-      isDataLoaded.value = true;
-
-      // 如果当前选择的设备有数据，刷新图表和表格
-      if (selectedKey.value) {
-        updateChartAndTable();
-      }
-
-      // 仅在手动刷新时弹窗提示
-      if (!autoRefresh.value) {
-        alert('数据已刷新');
-      }
-    } else {
-      throw new Error('返回数据格式不正确');
-    }
-  } catch (error) {
-    isDataLoaded.value = false;
-    alert('数据加载失败，请重试');
-    console.error('数据加载失败:', error.message || error);
-  }
-};
-
-// 初始化图表
-const initChart = () => {
-  if (!chartEl.value || !selectedKey.value) return;
-  chartInstance = echarts.init(chartEl.value);
-
-  const keyData = rawData.value.find(item => item.key === selectedKey.value);
-  const seriesData = keyData ? keyData.values.map(d => [d.time, d.value]) : [];
-
-  const option = {
-    tooltip: { 
-      trigger: 'axis',
-      formatter: (params) => {
-        const date = new Date(params[0].data[0]);
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
-        const hours = date.getHours();
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        const formattedDate = `${month}-${day} ${hours}:${minutes}`; // 格式为 "月-日 时:分"
-        return `${formattedDate}<br>${params[0].marker}${params[0].seriesName}: ${params[0].data[1]}`;
-      }
-    },
-    xAxis: {
-      type: 'time', // 使用时间轴类型
-      boundaryGap: false, // 确保线条从起点开始
-    },
-    yAxis: { type: 'value' },
-    series: [
-      {
-        name: keyData?.key_alias || selectedKey.value, // 使用设备别名或默认 key
-        type: 'line', // 使用折线图
-        data: seriesData, // 使用时间戳和值的数组
-      }
-    ]
-  };
-
-  chartInstance.setOption(option);
-};
-
-// 时间格式化
-const formatTime = (timestamp) => {
-  const date = new Date(timestamp);
-  const month = date.getMonth() + 1; // 月份从0开始，需要加1
-  const day = date.getDate();
-  const hours = date.getHours();
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  const seconds = date.getSeconds().toString().padStart(2, '0'); // 增加秒的显示
-  return `${month}-${day} ${hours}:${minutes}:${seconds}`; // 格式为 "月-日 时:分:秒"
-};
-
-// 自动刷新逻辑
-watch(autoRefresh, (newValue) => {
-  if (newValue) {
-    autoRefreshTimer = setInterval(() => {
-      handleManualRefresh();
-    }, refreshInterval.value);
-  } else {
-    clearInterval(autoRefreshTimer);
-    autoRefreshTimer = null;
-  }
-});
-
-const selectedDate = ref('全部'); // 默认值为 "全部"
-const startHour = ref(0);
-const endHour = ref(23);
+const selectedDate = ref('全部');
+const startTime = ref('00:00');
+const endTime = ref('23:59');
 const dateOptions = ref([]);
-const hourOptions = Array.from({ length: 24 }, (_, i) => i);
+const isLoading = ref(false);
+
+// 获取北京时间
+const getBeijingDate = (date = new Date()) => {
+  try {
+    const d = date instanceof Date ? date : new Date(date);
+    return new Date(d.getTime() + 8 * 60 * 60 * 1000); // 确保始终返回Date对象
+  } catch (e) {
+    console.error('Invalid date input:', date);
+    return new Date(); // 返回当前时间作为fallback
+  }
+};
 
 // 初始化日期选项
 const initDateOptions = () => {
-  const today = new Date();
-  const timezoneOffset = today.getTimezoneOffset() * 60000; // 获取时区偏移量（毫秒）
+  const today = getBeijingDate();
   dateOptions.value = ['全部', ...Array.from({ length: 8 }, (_, i) => {
-    const date = new Date(today - timezoneOffset); // 转换为 UTC 时间
-    date.setDate(today.getDate() - i);
+    const date = new Date(today);
+    date.setUTCDate(date.getUTCDate() - i);
     return date.toISOString().split('T')[0];
   })];
 };
 
-// 根据时间范围过滤表格和图表数据
-const filteredTableDataByRange = computed(() => {
+// 获取网关别名
+const fetchGatewayAlias = async () => {
+  isLoading.value = true;
+  try {
+    const mac = route.params.mac;
+    const res = await axios.get('/api/iot/devices', { 
+      params: { userId: authStore.userId } 
+    });
+    
+    if (res.data && res.data[mac]) {
+      const device = res.data[mac];
+      gatewayName.value = device.mac_alias || mac;
+      rawData.value = device.keys.map(key => ({
+        key: key.mac_key,
+        key_alias: key.key_alias || key.mac_key,
+        values: []
+      }));
+      
+      // 默认选择第一个设备
+      if (rawData.value.length > 0) {
+        selectedKey.value = rawData.value[0].key;
+      }
+    }
+  } catch (error) {
+    console.error('获取网关信息失败:', error);
+    gatewayName.value = route.params.mac;
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+// 修改后的数据处理方法
+const handleManualRefresh = async () => {
+  isLoading.value = true;
+  try {
+    const res = await axios.post('/api/iot/get_mac_data', { 
+      mac_address: route.params.mac 
+    });
+
+    rawData.value = Object.entries(res.data.data).map(([key, values]) => ({
+      key,
+      key_alias: rawData.value.find(item => item.key === key)?.key_alias || key,
+      values: values
+        .map(data => ({
+          value: parseFloat(data.value) || 0,
+          time: new Date(data.time).getTime() // 确保转换为时间戳
+        }))
+        .filter(item => !isNaN(item.time)) // 过滤无效时间
+        .sort((a, b) => a.time - b.time)
+    }));
+
+    // 自动选择第一个设备
+    if (rawData.value.length > 0 && !selectedKey.value) {
+      selectedKey.value = rawData.value[0].key;
+    }
+
+    isDataLoaded.value = true;
+    
+    // 强制图表更新
+    await nextTick();
+    if (chartInstance) chartInstance.dispose();
+    initChart();
+
+  } catch (error) {
+    console.error('刷新失败:', error);
+    alert(`数据获取失败: ${error.message}`);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+// 数据分组逻辑
+const groupData = (data, interval) => {
+  const groups = new Map();
+  data.forEach(item => {
+    const groupKey = Math.floor(item.time / interval) * interval + interval/2;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(item.value);
+  });
+  return Array.from(groups.entries()).map(([time, values]) => ({
+    time,
+    value: values.reduce((a, b) => a + b, 0) / values.length
+  }));
+};
+
+// 修复后的图表数据计算
+const processedChartData = computed(() => {
   if (!selectedKey.value) return [];
   const keyData = rawData.value.find(item => item.key === selectedKey.value);
-  if (!keyData) return [];
+  if (!keyData?.values) return [];
 
-  if (selectedDate.value === '全部') {
-    return keyData.values; // 不筛选日期，返回所有数据
-  }
+  // 添加数据有效性检查
+  const validValues = keyData.values.filter(item => 
+    item.time && !isNaN(new Date(item.time).getTime())
+  );
 
-  const startTimestamp = new Date(`${selectedDate.value}T${String(startHour.value).padStart(2, '0')}:00:00+08:00`).getTime(); // 使用北京时间
-  const endTimestamp = new Date(`${selectedDate.value}T${String(endHour.value).padStart(2, '0')}:59:59+08:00`).getTime(); // 使用北京时间
+  const now = getBeijingDate();
+  const threeDaysAgo = new Date(now);
+  threeDaysAgo.setUTCDate(threeDaysAgo.getUTCDate() - 3);
+  threeDaysAgo.setUTCHours(0, 0, 0, 0);
 
-  return keyData.values.filter(item => item.time >= startTimestamp && item.time <= endTimestamp);
-});
-
-// 更新图表和表格
-const updateChartAndTable = () => {
-  if (!chartEl.value || !selectedKey.value) return;
-
-  // 根据时间范围筛选数据
-  const seriesData = filteredTableDataByRange.value.map(d => [d.time, d.value]); // 使用时间戳作为 x 轴数据
-
-  const option = {
-    tooltip: { 
-      trigger: 'axis',
-      formatter: (params) => {
-        const date = new Date(params[0].data[0]);
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
-        const hours = date.getHours();
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        const formattedDate = `${month}-${day} ${hours}:${minutes}`; // 格式为 "月-日 时:分"
-        return `${formattedDate}<br>${params[0].marker}${params[0].seriesName}: ${params[0].data[1]}`;
-      }
-    },
-    xAxis: {
-      type: 'time', // 保持时间轴类型
-      boundaryGap: false, // 确保线条从起点开始
-    },
-    yAxis: { type: 'value' },
-    series: [
-      {
-        name: rawData.value.find(item => item.key === selectedKey.value)?.key_alias || selectedKey.value, // 使用设备别名或默认 key
-        type: 'line', // 使用折线图
-        data: seriesData // 使用时间戳和值的数组
-      }
-    ],
-    title: {
-      text: seriesData.length === 0 ? '当前日期无数据' : '', // 无数据时显示提示
-      left: 'center',
-      top: 'middle',
-      textStyle: {
-        color: '#999',
-        fontSize: 16
-      }
+  // 修复后的时间范围计算
+  const getRange = () => {
+    if (selectedDate.value === '全部') return {
+      start: threeDaysAgo.getTime(),
+      end: now.getTime()
+    };
+    
+    try {
+      const start = new Date(`${selectedDate.value}T${startTime.value}:00+08:00`);
+      const end = new Date(`${selectedDate.value}T${endTime.value}:59+08:00`);
+      return { 
+        start: start.getTime(), 
+        end: end.getTime(),
+        minutes: (end - start) / 60000 
+      };
+    } catch (e) {
+      console.error('Invalid date range:', e);
+      return { start: 0, end: 0, minutes: 0 };
     }
   };
 
-  chartInstance.setOption(option);
+  // 修复后的数据过滤
+  const { start, end, minutes } = getRange();
+  const filteredData = validValues.filter(item => {
+    const itemTime = new Date(item.time).getTime();
+    return selectedDate.value === '全部' ? 
+      itemTime >= threeDaysAgo.getTime() :
+      itemTime >= start && itemTime <= end;
+  });
 
-  // 重置分页到第一页
-  currentPage.value = 1;
-};
+  // 分组逻辑增加容错
+  const safeGroupData = (data, interval) => {
+    try {
+      return groupData(data, interval);
+    } catch (e) {
+      console.error('Data grouping failed:', e);
+      return [];
+    }
+  };
 
-// 监听时间范围和设备变化
-watch([selectedDate, startHour, endHour, selectedKey], updateChartAndTable);
+  // 新增逻辑：显示三天外的原始数据
+  if (selectedDate.value === '全部') {
+    const groupedData = safeGroupData(
+      filteredData.filter(item => item.time >= threeDaysAgo.getTime()),
+      30 * 60 * 1000
+    ).map(d => [d.time, parseFloat(d.value.toFixed(2))]); // 保留两位小数
 
-// 监听设备选择变化，重置日期和时间范围
-watch(selectedKey, () => {
-  selectedDate.value = '全部'; // 重置日期为 "全部"
-  startHour.value = 0; // 重置开始时间为 0
-  endHour.value = 23; // 重置结束时间为 23
-  initChart();
+    const rawDataOutsideThreeDays = validValues
+      .filter(item => item.time < threeDaysAgo.getTime())
+      .map(d => [d.time, parseFloat(d.value.toFixed(2))]); // 保留两位小数
+
+    return [...rawDataOutsideThreeDays, ...groupedData];
+  }
+
+  if (minutes > 480) {
+    return safeGroupData(filteredData, 5 * 60 * 1000).map(d => [d.time, parseFloat(d.value.toFixed(2))]); // 保留两位小数
+  }
+  if (minutes > 30) {
+    return safeGroupData(filteredData, 60 * 1000).map(d => [d.time, parseFloat(d.value.toFixed(2))]); // 保留两位小数
+  }
+  return filteredData.map(d => [d.time, parseFloat(d.value.toFixed(2))]); // 保留两位小数
 });
 
-// 初始化日期选项
+// 表格数据
+const filteredTableDataByRange = computed(() => {
+  if (!selectedKey.value) return [];
+  const keyData = rawData.value.find(item => item.key === selectedKey.value);
+  if (!keyData?.values) return [];
+
+  // 统一应用时间范围过滤
+  const { start, end } = getTimeRange();
+  return keyData.values.filter(item => {
+    const itemTime = new Date(item.time).getTime();
+    return selectedDate.value === '全部' || (itemTime >= start && itemTime <= end); // 修复选择全部时展示所有数据
+  }).map(item => ({
+    ...item,
+    value: parseFloat(item.value.toFixed(2)) // 保留两位小数
+  }));
+});
+
+// 时间范围获取方法
+const getTimeRange = () => {
+  try {
+    if (selectedDate.value === '全部') {
+      // 当选择全部日期时，使用完整时间范围
+      const start = new Date(`${dateOptions.value[1]}T00:00:00+08:00`).getTime(); // 最早日期
+      const end = new Date().getTime() + 8 * 60 * 60 * 1000; // 当前北京时间
+      const minutes = (end - start) / 60000;
+      return { start, end, minutes };
+    }
+    
+    const start = new Date(`${selectedDate.value}T${startTime.value}:00+08:00`);
+    const end = new Date(`${selectedDate.value}T${endTime.value}:59+08:00`);
+    return { 
+      start: start.getTime(), 
+      end: end.getTime(),
+      minutes: (end - start) / 60000 
+    };
+  } catch (e) {
+    console.error('时间范围解析错误:', e);
+    return { start: 0, end: 0, minutes: 0 };
+  }
+};
+
+
+// 分页逻辑
+const paginatedTableData = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage;
+  return filteredTableDataByRange.value.slice(start, start + itemsPerPage);
+});
+
+const totalPages = computed(() => 
+  Math.ceil(filteredTableDataByRange.value.length / itemsPerPage)
+);
+
+// 图表操作
+const initChart = () => {
+  if (!chartEl.value) return;
+  chartInstance = echarts.init(chartEl.value);
+  updateChart();
+};
+
+// 优化后的图表更新逻辑
+const updateChart = () => {
+  if (!chartInstance || !selectedKey.value) return;
+  
+  // 销毁旧图表实例
+  chartInstance.dispose();
+
+  // 等待DOM更新
+  nextTick(() => {
+    chartInstance = echarts.init(chartEl.value);
+
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => {
+          const date = getBeijingDate(params[0].data[0]);
+          return `${date.getUTCFullYear()}-${(date.getUTCMonth()+1).toString().padStart(2,'0')}-${date.getUTCDate().toString().padStart(2,'0')} 
+                  ${date.getUTCHours().toString().padStart(2,'0')}:${date.getUTCMinutes().toString().padStart(2,'0')}
+                  <br/>${params[0].marker}${params[0].seriesName}: ${params[0].data[1]}`;
+        }
+      },
+      xAxis: { type: 'time', boundaryGap: false },
+      yAxis: { type: 'value' },
+      series: [{
+        name: rawData.value.find(item => item.key === selectedKey.value)?.key_alias || selectedKey.value,
+        type: 'line',
+        data: processedChartData.value,
+        showSymbol: true, // 显示数据点
+        symbol: 'circle', // 数据点样式
+        symbolSize: 6, // 数据点大小
+        lineStyle: {
+          width: 2 // 优化折线宽度
+        },
+        itemStyle: {
+          color: '#409eff' // 数据点颜色
+        }
+      }]
+    };
+    chartInstance.setOption(option);
+  });
+};
+
+// 修复后的时间格式化
+const formatTime = timestamp => {
+  try {
+    const date = getBeijingDate(timestamp);
+    return `${date.getUTCFullYear()}-${(date.getUTCMonth()+1).toString().padStart(2,'0')}-${date.getUTCDate().toString().padStart(2,'0')} 
+            ${date.getUTCHours().toString().padStart(2,'0')}:${date.getUTCMinutes().toString().padStart(2,'0')}:${date.getUTCSeconds().toString().padStart(2,'0')}`;
+  } catch (e) {
+    console.error('Invalid timestamp:', timestamp);
+    return 'Invalid Time';
+  }
+};
+
+// 分页方法
+const goToFirstPage = () => currentPage.value = 1;
+const goToPreviousPage = () => currentPage.value = Math.max(1, currentPage.value - 1);
+const goToNextPage = () => currentPage.value = Math.min(totalPages.value, currentPage.value + 1);
+const goToLastPage = () => currentPage.value = totalPages.value;
+
+// 优化后的时间范围验证
+const validateTimeRange = () => {
+  const [startH, startM] = startTime.value.split(':').map(Number);
+  const [endH, endM] = endTime.value.split(':').map(Number);
+  
+  // 处理跨天时间
+  if (endH * 60 + endM <= startH * 60 + startM) {
+    alert('结束时间必须晚于开始时间');
+    endTime.value = '23:59';
+  }
+  updateChart(); // 立即刷新图表
+};
+
+// 生命周期
 onMounted(() => {
   initDateOptions();
   fetchGatewayAlias();
-  watch(selectedKey, () => {
-    initChart();
-  });
+  window.addEventListener('resize', () => chartInstance?.resize());
 });
 
-// 页面卸载时清除定时器
 onUnmounted(() => {
   clearInterval(autoRefreshTimer);
+  window.removeEventListener('resize', () => chartInstance?.resize());
 });
 
-// 响应窗口变化
-window.addEventListener('resize', () => {
-  chartInstance?.resize();
+// 新增设备选择监听
+watch(selectedKey, (newVal) => {
+  if (newVal) {
+
+    
+    // 等待DOM更新后刷新图表
+    nextTick(() => {
+      if (chartInstance) {
+        chartInstance.dispose();
+      }
+      initChart();
+    });
+  }
+});
+
+// 优化watch监听
+let refreshTimer = null;
+watch([selectedDate, startTime, endTime], () => {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    // 强制重置分页
+    currentPage.value = 1;
+    // 双重验证数据有效性
+    if (chartEl.value && chartEl.value.offsetHeight > 0) {
+      updateChart();
+    }
+  }, 200); // 缩短防抖时间到200ms
 });
 </script>
 
 <style scoped>
-.loading-container {
-  text-align: center;
-  margin-top: 2rem;
-  font-size: 1.2rem;
-  color: #555;
-}
-.toolbar {
-  display: flex;
+.header { padding: 1rem; text-align: center; }
+.toolbar { 
+  display: flex; 
+  gap: 1rem; 
+  padding: 1rem; 
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap; /* 支持换行 */
 }
-
-.key-select {
-  padding: 0.5rem;
-  font-size: 1rem;
-}
-
-.refresh-button {
-  padding: 0.5rem 1rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 4px;
+.refresh-button { 
+  background: #409eff; 
+  color: white; 
+  border: none; 
+  padding: 8px 15px; 
+  border-radius: 4px; 
   cursor: pointer;
 }
-
-.refresh-button:hover {
-  background-color: #2563eb;
+.auto-refresh { display: flex; align-items: center; gap: 5px; }
+.key-select { padding: 5px; min-width: 200px; }
+.time-range input[type="time"] {
+  flex: 1;
+  min-width: 100px;
 }
-
-.auto-refresh {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.history-container { 
+  display: grid; 
+  grid-template-columns: 2fr 1fr; 
+  gap: 2rem; 
+  padding: 1rem;
 }
-
-.history-container {
-  padding: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.chart-container {
-  margin-bottom: 2rem;
-}
-
-.chart {
-  width: 100%;
-  height: 400px;
-}
-
-.data-table {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th, td {
-  padding: 0.8rem;
-  border: 1px solid #ddd;
-  text-align: left;
-}
-
-th {
-  background-color: #f5f6fa;
-}
-
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 0.5rem;
+.chart { height: 400px; }
+.data-table { overflow-x: auto; }
+table { 
+  width: 100%; 
+  border-collapse: collapse; 
   margin-top: 1rem;
 }
-
-.pagination button {
-  padding: 0.5rem 1rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+th, td { 
+  padding: 10px; 
+  border: 1px solid #ebeef5; 
+  text-align: left;
 }
-
-.pagination button:disabled {
-  background-color: #94a3b8;
-  cursor: not-allowed;
-}
-
-.header {
-  text-align: center;
-  margin-bottom: 1rem;
-}
-.header h1 {
-  font-size: 1.5rem;
-  color: #333;
-}
-
-.date-range {
-  display: flex;
+th { background: #f5f7fa; }
+.pagination { 
+  display: flex; 
+  gap: 10px; 
+  margin-top: 1rem;
+  justify-content: center;
   align-items: center;
-  gap: 0.5rem;
+}
+.pagination button { 
+  padding: 5px 10px; 
+  background: #409eff; 
+  color: white; 
+  border: none; 
+  border-radius: 3px;
+}
+.pagination button:disabled { background: #c0c4cc; }
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255,255,255,0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+}
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #409eff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* 新增时间选择器样式 */
+input[type="time"] {
+  padding: 6px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  transition: border-color 0.3s;
+}
+input[type="time"]:hover {
+  border-color: #c0c4cc;
+}
+input[type="time"]:focus {
+  border-color: #409eff;
+  outline: none;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 @media (max-width: 768px) {
-  .toolbar {
-    flex-direction: column; /* 小屏幕下垂直排列 */
-    align-items: stretch; /* 拉伸子元素宽度 */
-  }
-
-  .key-select,
-  .refresh-button,
-  .pagination button {
-    width: 100%; /* 按钮和选择框宽度占满 */
-    box-sizing: border-box; /* 包括内边距和边框 */
-  }
-
-  .header h1 {
-    font-size: 1.2rem; /* 调整标题大小 */
-  }
-
-  .chart {
-    height: 300px; /* 图表高度适配小屏幕 */
-  }
-
-  table {
-    font-size: 0.9rem; /* 表格字体缩小 */
-  }
-
-  th, td {
-    padding: 0.5rem; /* 缩小单元格内边距 */
-  }
-
-  .pagination {
-    flex-direction: column; /* 分页按钮垂直排列 */
-    gap: 0.5rem;
-  }
+  .history-container { grid-template-columns: 1fr; }
+  .toolbar { flex-direction: column; }
+  .key-select, input[type="time"] { width: 100%; }
+}
+.no-data-container {
+  text-align: center;
+  padding: 2rem;
+  color: #909399;
+  font-size: 1.2rem;
 }
 </style>
