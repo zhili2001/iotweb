@@ -152,6 +152,7 @@ const handleRequestError = (error, defaultMessage) => {
 onMounted(() => {
   checkLoginStatus();
   fetchDevices();
+  document.title = '设备管理';
 });
 </script>
 

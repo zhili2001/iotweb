@@ -5,7 +5,7 @@
       <button @click="handleManualRefresh" class="refresh-button">立即刷新</button>
       <label class="auto-refresh">
         <input type="checkbox" v-model="autoRefresh" :disabled="!isDataLoaded" />
-        自动刷新（120S）
+        自动刷新（150S）
       </label>
     </div>
   </div>
@@ -67,6 +67,21 @@
     <div class="spinner"></div>
     <p>加载中，请稍候...</p>
   </div>
+  <div class="footer">
+    <p>统计规则：</p>
+    <ol>
+      <li>选择全部日期时：折线图前三天数据显示每半小时的平均值，表格显示所有完整数据。</li>
+      <li>选择准确日期时：</li>
+      <li>1、时间精度选择大于8小时时，折线图前三天数据显示每五分钟的平均值，表格显示当日完整数据</li>
+      <li>2、时间精度选择大于30分钟且小于等于8小时，折线图显示每分钟平均值，表格当日完整数据</li>
+      <li>3、时间精度选择小于等于30分钟时，折线图显示完整数据，表格当日完整数据</li>
+    </ol>
+    <p>数据存储方式：</p>
+    <ul>
+      <li>前三天内数据全部保存；七天前的数据将被删除</li>
+      <li>每天0:00，将三天之后的数据取半小时平均值</li>
+    </ul>
+  </div>
 </template>
 
 <script setup>
@@ -84,7 +99,7 @@ let chartInstance = null;
 // 响应式数据
 const gatewayName = ref('');
 const autoRefresh = ref(false);
-const refreshInterval = 120000;
+const refreshInterval = 150000; // 150秒
 let autoRefreshTimer = null;
 const selectedKey = ref(null);
 const isDataLoaded = ref(false);
@@ -454,6 +469,21 @@ watch([selectedDate, startTime, endTime], () => {
     }
   }, 200); // 缩短防抖时间到200ms
 });
+
+// 自动刷新逻辑
+watch(autoRefresh, (newVal) => {
+  clearInterval(autoRefreshTimer);
+  if (newVal) {
+    autoRefreshTimer = setInterval(() => {
+      if (isDataLoaded.value) {
+        handleManualRefresh();
+      }
+    }, refreshInterval);
+  }
+});
+
+document.title = '历史数据'; // 设置页面标题
+
 </script>
 
 <style scoped>

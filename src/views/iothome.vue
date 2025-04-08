@@ -135,6 +135,9 @@ const files = ref([
   { name: '硬件接入API', path: './files/硬件接入API.pdf' },
   { name: '客户端开发API', path: './files/客户端开发API.pdf' }
 ]);
+
+// 更新页面标题和图标
+document.title = '平台总览';
 </script>
 
 <style scoped>

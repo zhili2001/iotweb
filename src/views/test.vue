@@ -48,32 +48,34 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import mqtt from 'mqtt'
+import { ref, reactive } from 'vue';
+import mqtt from 'mqtt';
 
-const brokerUrl = ref('ws://your-broker:8083/mqtt')
-const username = ref('')
-const password = ref('')
-const subTopic = ref('')
-const pubTopic = ref('')
-const pubMessage = ref('')
-const isConnected = ref(false)
-const currentTopic = ref('')
-const messages = reactive([])
+document.title = '测试页面';
 
-let client = null
+const brokerUrl = ref('ws://your-broker:8083/mqtt');
+const username = ref('');
+const password = ref('');
+const subTopic = ref('');
+const pubTopic = ref('');
+const pubMessage = ref('');
+const isConnected = ref(false);
+const currentTopic = ref('');
+const messages = reactive([]);
+
+let client = null;
 
 const toggleConnection = () => {
   if (!isConnected.value) {
     if (!brokerUrl.value) {
-      alert('请输入服务器地址')
-      return
+      alert('请输入服务器地址');
+      return;
     }
-    connectToBroker()
+    connectToBroker();
   } else {
-    disconnectFromBroker()
+    disconnectFromBroker();
   }
-}
+};
 
 const connectToBroker = () => {
   const options = {
@@ -81,75 +83,71 @@ const connectToBroker = () => {
     connectTimeout: 4000,
     username: username.value,
     password: password.value,
-  }
+  };
 
-  client = mqtt.connect(brokerUrl.value, options)
+  client = mqtt.connect(brokerUrl.value, options);
 
   client.on('connect', () => {
-    isConnected.value = true
-    console.log('认证连接成功')
-  })
+    isConnected.value = true;
+    console.log('认证连接成功');
+  });
 
   client.on('message', (topic, message) => {
     messages.push({
       timestamp: new Date().toLocaleTimeString(),
       topic,
-      message: message.toString()
-    })
-  })
+      message: message.toString(),
+    });
+  });
 
   client.on('error', (err) => {
-    console.error('认证失败:', err)
-    alert(`连接错误: ${err.message}`)
-    disconnectFromBroker()
-  })
-}
+    console.error('认证失败:', err);
+    alert(`连接错误: ${err.message}`);
+    disconnectFromBroker();
+  });
+};
 
 const disconnectFromBroker = () => {
   if (client) {
-    client.end()
-    isConnected.value = false
-    currentTopic.value = ''
-    messages.splice(0, messages.length)
+    client.end();
+    isConnected.value = false;
+    currentTopic.value = '';
+    messages.splice(0, messages.length);
   }
-}
+};
 
-
-// 订阅主题
 const subscribeTopic = () => {
   if (subTopic.value && client) {
     client.subscribe(subTopic.value, (err) => {
       if (!err) {
-        currentTopic.value = subTopic.value
-        subTopic.value = ''
+        currentTopic.value = subTopic.value;
+        subTopic.value = '';
       }
-    })
+    });
   }
-}
+};
 
-// 发布消息
 const publishMessage = () => {
   if (pubTopic.value && pubMessage.value && client) {
-    client.publish(pubTopic.value, pubMessage.value)
-    pubMessage.value = ''
+    client.publish(pubTopic.value, pubMessage.value);
+    pubMessage.value = '';
   }
-}
+};
 </script>
 
 <style scoped>
-/* 样式优化 */
 .input-group {
-display: grid;
-grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
 }
 
 button {
-background-color: #2196F3;
+  background-color: #2196f3;
 }
 
 button:disabled {
-background-color: #9E9E9E;
+  background-color: #9e9e9e;
 }
 
 .container {
@@ -158,7 +156,6 @@ background-color: #9E9E9E;
   padding: 20px;
 }
 
-
 .input-group input {
   flex: 1;
   padding: 8px;
@@ -166,7 +163,7 @@ background-color: #9E9E9E;
 
 button {
   padding: 8px 16px;
-  background-color: #4CAF50;
+  background-color: #4caf50;
   color: white;
   border: none;
   border-radius: 4px;
@@ -197,7 +194,7 @@ button {
 }
 
 .topic {
-  color: #2196F3;
+  color: #2196f3;
   min-width: 120px;
 }
 </style>

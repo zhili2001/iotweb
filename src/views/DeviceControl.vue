@@ -215,6 +215,7 @@ onMounted(() => {
     password.value = savedPassword;
     handlePasswordSubmit();
   }
+  document.title = '设备控制';
 });
 
 onUnmounted(() => {

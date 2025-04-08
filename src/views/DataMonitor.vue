@@ -230,6 +230,7 @@ onMounted(() => {
     handlePasswordSubmit();
   }
   fetchDevices();
+  document.title = '数据监控';
 });
 
 onUnmounted(() => {

@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/auth';
 
 const routes = [
   { path: '/', redirect: '/home' },
-  { path: '/test', name: 'Test', component: () => import('../views/test.vue') }, // 确保 name 和 component 路径正确
+  { path: '/test', name: 'Test', component: () => import('../views/test.vue') },
   { path: '/login', name: 'Login', component: () => import('../views/LoginView.vue') },
   { path: '/register', name: 'Register', component: () => import('../views/RegisterView.vue') },
   { path: '/set', name: 'set', component: () => import('../views/IoTPlatform.vue'), meta: { requiresAuth: true } },
@@ -11,17 +11,12 @@ const routes = [
   { path: '/monitor', name: 'DataMonitor', component: () => import('../views/DataMonitor.vue'), meta: { requiresAuth: true } },
   { path: '/control', name: 'DeviceControl', component: () => import('../views/DeviceControl.vue'), meta: { requiresAuth: true } },
   { path: '/automation', name: 'Automation', component: () => import('../views/AutomationView.vue'), meta: { requiresAuth: true } },
-  {
-    path: '/history/:mac',
-    name: 'HistoryData',
-    component: () => import('../views/HistoryDataView.vue'),
-    meta: { requiresAuth: true }
-  }
+  { path: '/history/:mac', name: 'HistoryData', component: () => import('../views/HistoryDataView.vue'), meta: { requiresAuth: true } },
 ];
 
 //Vue Router的配置部分，用于创建一个路由器实例
 const router = createRouter({
-  //history: createWebHistory(),            //指定路由器使用HTML5的History API来管理URL，这种模式使用URL的路径部分，而不需要#符号，使URL看起来更干净。
+//history: createWebHistory(),            //指定路由器使用HTML5的History API来管理URL，这种模式使用URL的路径部分，而不需要#符号，使URL看起来更干净。
   history: createWebHistory('/iot/'),    // [!code ++]
   routes                                  //数组，包含了应用中所有路由的配置。每个路由配置通常包含path（路径）、component（组件）等属性
 });
@@ -34,11 +29,10 @@ from 参数代表当前导航正要离开的路由。
 next 是一个回调函数，用于决定导航的下一步操作。*/
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
-  
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next('/login')
+    next('/login');
   } else {
-    next()
+    next();
   }
 });
 

@@ -10,23 +10,23 @@ const errorMessage = ref('');
 const authStore = useAuthStore();
 const router = useRouter();
 
+document.title = '用户登录';
+
 const handleLogin = async () => {
   try {
     loading.value = true;
     errorMessage.value = '';
-    
+
     await authStore.login(form.value);
-    
-    // 登录成功后，手动检查状态并跳转
+
     if (authStore.isAuthenticated) {
-      router.replace('/home'); // 使用 replace 避免历史记录问题
+      router.replace('/home');
     } else {
       errorMessage.value = '认证状态异常，请重新登录';
     }
   } catch (error) {
     errorMessage.value = error.message;
-    // 自动清除错误提示
-    setTimeout(() => errorMessage.value = '', 5000);
+    setTimeout(() => (errorMessage.value = ''), 5000);
   } finally {
     loading.value = false;
   }
@@ -35,16 +35,14 @@ const handleLogin = async () => {
 
 <template>
   <div class="login-container">
-    <!-- 错误提示 -->
     <div v-if="errorMessage" class="error-alert">
       {{ errorMessage }}
     </div>
-    
-    <!-- 加载状态 -->
+
     <div v-if="loading" class="loading-overlay">
       <div class="loader"></div>
     </div>
-    
+
     <div class="login-container">
       <h2>用户登录</h2>
       <form @submit.prevent="handleLogin">
@@ -78,7 +76,7 @@ const handleLogin = async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255,255,255,0.8);
+  background: rgba(255, 255, 255, 0.8);
   display: grid;
   place-items: center;
 }
@@ -93,24 +91,31 @@ const handleLogin = async () => {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .login-container {
   max-width: 400px;
   margin: 2rem auto;
   padding: 20px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
+
 .form-group {
   margin-bottom: 1rem;
 }
+
 input {
   width: 100%;
   padding: 8px;
   margin-top: 5px;
 }
+
 button {
   width: 100%;
   padding: 10px;

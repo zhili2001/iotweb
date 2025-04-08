@@ -179,6 +179,8 @@ onMounted(() => {
     password.value = savedPassword;
     handlePasswordSubmit();
   }
+  document.title = '自动化设置';
+
 });
 
 onUnmounted(() => mqttClientInstance.value?.end(true));
